@@ -234,6 +234,7 @@ body{
 .btn{border:0;cursor:pointer;font-family:'Baloo 2',sans-serif;font-weight:700;color:#fff;border-radius:12px;padding:11px 16px;
   background:linear-gradient(160deg,#37d67a,#22b464);box-shadow:0 8px 16px rgba(34,180,100,.25);white-space:nowrap}
 .btn.roxo{background:linear-gradient(160deg,#8f6bff,#6c3bff);box-shadow:0 8px 16px rgba(108,59,255,.25)}
+.btn.del-btn{background:linear-gradient(160deg,#ff7a7a,#e23b3b);box-shadow:0 8px 16px rgba(226,59,59,.22)}
 .btn.icon{padding:11px 13px;background:#fff;color:var(--pink-d);box-shadow:inset 0 0 0 2px #ffe0ec}
 .btn.icon.del{color:var(--red);box-shadow:inset 0 0 0 2px #ffe0e0}
 .lista-itens{display:flex;flex-direction:column;gap:8px}
@@ -243,6 +244,9 @@ body{
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(30px);background:var(--ink);color:#fff;
   font-weight:700;font-size:14px;padding:12px 18px;border-radius:14px;opacity:0;transition:.3s;z-index:50;pointer-events:none}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.ok{background:#22b464}
+.toast.erro{background:#e23b3b}
+.item-row.saved{box-shadow:inset 0 0 0 2px #37d67a;background:#effbf3}
 
 /* partículas (corações/estrelinhas ao tocar) */
 .fx{position:fixed;pointer-events:none;z-index:40;font-size:24px;animation:flutuar 1s ease-out forwards}
@@ -324,7 +328,7 @@ body{
     <div>
       <button class="outro" id="outroBtn">+ outro valor</button>
       <div class="outro-panel" id="outroPanel">
-        <input id="outroInput" type="number" inputmode="decimal" min="0" step="0.01" placeholder="R$ 0,00" />
+        <input id="outroInput" type="text" inputmode="decimal" placeholder="R$ 0,00" />
         <button class="mini-btn" id="outroAdd">Adicionar</button>
       </div>
     </div>
@@ -345,7 +349,7 @@ body{
       <p class="dica">Cadastre os itens que vão aparecer como botões na tela inicial. Ao clicar num item, o valor dele é somado ao saldo.</p>
       <div class="linha">
         <input class="in-nome" id="novoNome" placeholder="Nome do item (ex: Fralda)" />
-        <input class="in-valor" id="novoValor" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Valor R$" />
+        <input class="in-valor" id="novoValor" type="text" inputmode="decimal" placeholder="Valor R$" />
         <button class="btn" id="addItemBtn">+ Adicionar</button>
       </div>
       <div class="lista-itens" id="listaItens"></div>
@@ -386,7 +390,7 @@ body{
    ⚙️  CONFIGURAÇÃO DO SUPABASE  —  cole aqui os seus dados
    (enquanto estiver vazio, a página salva localmente no navegador)
    ===================================================================== */
-const SUPABASE_URL      = "https://jcoplddideaiozoqyixh.supabase.co/rest/v1/";   // 👈 ex: https://xxxxxxxx.supabase.co
+const SUPABASE_URL      = "https://jcoplddideaiozoqyixh.supabase.co";   // 👈 ex: https://xxxxxxxx.supabase.co
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impjb3BsZGRpZGVhaW96b3F5aXhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MTA0NTcsImV4cCI6MjA5OTE4NjQ1N30.9IIcnJPRT19az6Rh9vsZvgwEWi-shybN1J7UL2ewMmU";   // 👈 ex: eyJhbGciOi... (chave "anon public")
 
 /* ===================================================================== */
@@ -432,16 +436,19 @@ const DB = {
   },
   async addItem(nome,valor){
     if(online){ const {data,error}=await sb.from('categorias').insert({nome,valor,ordem:Date.now()%100000}).select().single();
-      if(!error && data) return {id:data.id,nome:data.nome||"",valor:Number(data.valor)}; }
-    const arr=this._itensLocais(); const item={id:Date.now(),nome,valor:Number(valor)}; arr.push(item); LS.set(K_ITENS,arr); return item;
+      if(error) return {ok:false,error:error.message};
+      return {ok:true,item:{id:data.id,nome:data.nome||"",valor:Number(data.valor)}}; }
+    const arr=this._itensLocais(); const item={id:Date.now(),nome,valor:Number(valor)}; arr.push(item); LS.set(K_ITENS,arr); return {ok:true,item};
   },
   async updateItem(id,nome,valor){
-    if(online){ await sb.from('categorias').update({nome,valor}).eq('id',id); return; }
-    const arr=this._itensLocais(); const it=arr.find(x=>x.id==id); if(it){it.nome=nome;it.valor=Number(valor);} LS.set(K_ITENS,arr);
+    if(online){ const {error}=await sb.from('categorias').update({nome,valor}).eq('id',id);
+      return error?{ok:false,error:error.message}:{ok:true}; }
+    const arr=this._itensLocais(); const it=arr.find(x=>x.id==id); if(it){it.nome=nome;it.valor=Number(valor);} LS.set(K_ITENS,arr); return {ok:true};
   },
   async removeItem(id){
-    if(online){ await sb.from('categorias').delete().eq('id',id); return; }
-    let arr=this._itensLocais().filter(x=>x.id!=id); LS.set(K_ITENS,arr);
+    if(online){ const {error}=await sb.from('categorias').delete().eq('id',id);
+      return error?{ok:false,error:error.message}:{ok:true}; }
+    let arr=this._itensLocais().filter(x=>x.id!=id); LS.set(K_ITENS,arr); return {ok:true};
   },
   async getCfg(){
     if(online){ const {data,error}=await sb.from('config').select('*');
@@ -449,8 +456,8 @@ const DB = {
     return LS.get(K_CFG,{});
   },
   async setCfg(chave,valor){
-    if(online){ await sb.from('config').upsert({chave,valor}); return; }
-    const o=LS.get(K_CFG,{}); o[chave]=valor; LS.set(K_CFG,o);
+    if(online){ const {error}=await sb.from('config').upsert({chave,valor}); return error?{ok:false,error:error.message}:{ok:true}; }
+    const o=LS.get(K_CFG,{}); o[chave]=valor; LS.set(K_CFG,o); return {ok:true};
   }
 };
 
@@ -458,6 +465,13 @@ const DB = {
 const $ = s => document.querySelector(s);
 const fmt = v => Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const CORES = ['c0','c1','c2','c3','c4','c5'];
+// aceita "30,50", "1.234,56", "80", "80.5" -> número
+function parseValor(s){
+  s=String(s==null?'':s).trim().replace(/[^\d.,-]/g,'');
+  if(s.includes(',')&&s.includes('.')) s=s.replace(/\./g,'').replace(',','.');
+  else s=s.replace(',','.');
+  const n=parseFloat(s); return isNaN(n)?0:n;
+}
 
 let saldoAtual = 0, cfgAtual = {}, animando = false;
 
@@ -588,17 +602,37 @@ function mostrar(view){
 async function renderCategorias(){
   const lista=$('#listaItens'); lista.innerHTML='';
   const itens=await DB.listItens();
+  if(!itens.length){ lista.innerHTML='<div class="hint">Nenhum item ainda. Adicione o primeiro no campo acima 👆</div>'; }
   itens.forEach(it=>{
     const row=document.createElement('div'); row.className='item-row';
-    row.innerHTML=
-      '<input class="in-nome" value="'+(it.nome||'').replace(/"/g,'&quot;')+'" placeholder="Nome" />'+
-      '<input class="in-valor" type="number" min="0" step="0.01" value="'+it.valor+'" />'+
-      '<button class="btn icon" title="Salvar">💾</button>'+
-      '<button class="btn icon del" title="Remover">🗑️</button>';
-    const [inNome,inValor]=row.querySelectorAll('input');
-    const [salvar,remover]=row.querySelectorAll('button');
-    salvar.addEventListener('click',async()=>{ await DB.updateItem(it.id,inNome.value.trim(),parseFloat((inValor.value||'0').replace(',','.'))||0); toast('Item salvo!'); renderItens(); });
-    remover.addEventListener('click',async()=>{ await DB.removeItem(it.id); toast('Item removido'); renderCategorias(); renderItens(); });
+    const inNome=document.createElement('input'); inNome.className='in-nome'; inNome.placeholder='Nome (opcional)'; inNome.value=it.nome||'';
+    const inValor=document.createElement('input'); inValor.className='in-valor'; inValor.type='text'; inValor.inputMode='decimal'; inValor.placeholder='R$'; inValor.value=String(it.valor).replace('.',',');
+    const bSalvar=document.createElement('button'); bSalvar.className='btn'; bSalvar.textContent='Salvar';
+    const bRemover=document.createElement('button'); bRemover.className='btn del-btn'; bRemover.textContent='Remover';
+
+    let lastN=it.nome||'', lastV=Number(it.valor);
+    async function salvar(){
+      const nome=inNome.value.trim(); const valor=parseValor(inValor.value);
+      if(valor<=0){ toast('Digite um valor maior que zero','erro'); inValor.focus(); return; }
+      if(nome===lastN && valor===lastV){ return; }   // nada mudou
+      const r=await DB.updateItem(it.id,nome,valor);
+      if(r.ok){ lastN=nome; lastV=valor; it.nome=nome; it.valor=valor; inValor.value=String(valor).replace('.',',');
+        row.classList.add('saved'); setTimeout(()=>row.classList.remove('saved'),900); toast('Item salvo ✓','ok'); renderItens(); }
+      else toast('Erro ao salvar: '+r.error,'erro');
+    }
+    async function remover(){
+      const r=await DB.removeItem(it.id);
+      if(r.ok){ row.remove(); toast('Item removido','ok'); renderItens(); if(!lista.children.length) renderCategorias(); }
+      else toast('Erro ao remover: '+r.error,'erro');
+    }
+    inNome.addEventListener('change',salvar);
+    inValor.addEventListener('change',salvar);
+    inNome.addEventListener('keydown',e=>{ if(e.key==='Enter') inNome.blur(); });
+    inValor.addEventListener('keydown',e=>{ if(e.key==='Enter') inValor.blur(); });
+    bSalvar.addEventListener('click',salvar);
+    bRemover.addEventListener('click',remover);
+
+    row.append(inNome,inValor,bSalvar,bRemover);
     lista.appendChild(row);
   });
   // config
@@ -611,7 +645,7 @@ async function renderCategorias(){
 
 /* ---------- toast ---------- */
 let toastT=null;
-function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),1900); }
+function toast(msg,tipo){ const t=$('#toast'); t.textContent=msg; t.className='toast show'+(tipo?(' '+tipo):''); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),tipo==='erro'?3200:1900); }
 
 /* ---------- eventos ---------- */
 function ligarEventos(){
@@ -621,23 +655,26 @@ function ligarEventos(){
   $('#gearBtn').addEventListener('click',()=>mostrar('cat'));
   $('#voltarBtn').addEventListener('click',()=>mostrar('home'));
 
-  $('#outroBtn').addEventListener('click',()=>$('#outroPanel').classList.toggle('open'));
-  $('#outroAdd').addEventListener('click',()=>{ const v=parseFloat(($('#outroInput').value||'0').replace(',','.'));
-    if(v>0){ adicionar(v,$('#outroAdd')); $('#outroInput').value=''; $('#outroPanel').classList.remove('open'); } });
+  $('#outroBtn').addEventListener('click',()=>{ $('#outroPanel').classList.toggle('open'); $('#outroInput').focus(); });
+  $('#outroAdd').addEventListener('click',()=>{ const v=parseValor($('#outroInput').value);
+    if(v>0){ adicionar(v,$('#outroAdd')); $('#outroInput').value=''; $('#outroPanel').classList.remove('open'); }
+    else toast('Digite um valor maior que zero','erro'); });
   $('#outroInput').addEventListener('keydown',e=>{ if(e.key==='Enter') $('#outroAdd').click(); });
 
   $('#addItemBtn').addEventListener('click',async()=>{
-    const nome=$('#novoNome').value.trim(); const valor=parseFloat(($('#novoValor').value||'0').replace(',','.'));
-    if(!valor||valor<=0){ toast('Informe um valor válido'); return; }
-    await DB.addItem(nome,valor); $('#novoNome').value=''; $('#novoValor').value='';
-    toast('Item adicionado!'); renderCategorias(); renderItens();
+    const nome=$('#novoNome').value.trim(); const valor=parseValor($('#novoValor').value);
+    if(valor<=0){ toast('Informe um valor maior que zero','erro'); $('#novoValor').focus(); return; }
+    const r=await DB.addItem(nome,valor);
+    if(r.ok){ $('#novoNome').value=''; $('#novoValor').value=''; toast('Item adicionado ✓','ok'); renderCategorias(); renderItens(); }
+    else toast('Erro ao adicionar: '+r.error,'erro');
   });
   $('#salvarDataBtn').addEventListener('click',async()=>{
     const titulo=$('#cfgTitulo').value.trim(); const dataV=$('#cfgData').value;
-    await DB.setCfg('titulo_evento',titulo);
-    await DB.setCfg('data_evento', dataV?new Date(dataV).toISOString():'');
-    cfgAtual.titulo_evento=titulo; cfgAtual.data_evento=dataV?new Date(dataV).toISOString():'';
-    toast('Contagem salva!'); renderCategorias();
+    const iso = dataV?new Date(dataV).toISOString():'';
+    const r1=await DB.setCfg('titulo_evento',titulo);
+    const r2=await DB.setCfg('data_evento', iso);
+    if(r1.ok&&r2.ok){ cfgAtual.titulo_evento=titulo; cfgAtual.data_evento=iso; toast('Contagem salva ✓','ok'); renderCategorias(); }
+    else toast('Erro ao salvar: '+((r1.error||'')+' '+(r2.error||'')).trim(),'erro');
   });
 }
 
